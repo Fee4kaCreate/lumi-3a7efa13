@@ -742,7 +742,8 @@
     els.saveProgress.hidden = false;
     els.saveProgressDone.hidden = true;
 
-    // На Android и компьютере — anchor download каждого файла по очереди.
+    // На iPhone делим по одному файлу: navigator.share принимает набор, но пользователю удобнее по одному с явным прогрессом.
+    // На остальных — anchor download каждого файла по очереди с маленькой паузой.
     let saved = 0, cancelled = 0, errors = 0, needsTap = 0;
     const total = targets.length;
 
@@ -751,19 +752,11 @@
     // и всё после первой молча пропадало.
     if (shouldShare() && total > 1) {
       const files = targets.map(it => blobToFile(it.blob, newFileName(it)));
+      let batched = false;
       try {
         if (navigator.canShare({ files })) {
           await navigator.share({ files, title: `Фотографии (${total})` });
-          for (const it of targets) it.status = 'saved';
-          els.saveProgressFill.style.width = '100%';
-          els.saveProgress.hidden = true;
-          els.saveAllBtn.disabled = false;
-          els.saveProgressDone.hidden = false;
-          els.saveProgressDone.textContent = `✓ Все ${total} фотографий отправлены в «Фото»`;
-          els.saveProgressDone.className = 'save-progress-done is-ok';
-          toast(`Сохранено: ${total}`, 'ok');
-          renderResults();
-          return;
+          batched = true;
         }
       } catch (err) {
         if (err && err.name === 'AbortError') {
@@ -776,16 +769,20 @@
           renderResults();
           return;
         }
+        // Остальное — пробуем по одной, как раньше.
       }
-      // Не подменяем один Share Sheet серией отдельных окон: именно набор файлов
-      // позволяет iOS показать действие «Сохранить изображения» для всех фото.
-      els.saveProgress.hidden = true;
-      els.saveAllBtn.disabled = false;
-      els.saveProgressDone.hidden = false;
-      els.saveProgressDone.textContent = 'Не удалось открыть общее меню сохранения. Попробуйте ещё раз в Safari.';
-      els.saveProgressDone.className = 'save-progress-done is-warn';
-      renderResults();
-      return;
+      if (batched) {
+        for (const it of targets) it.status = 'saved';
+        els.saveProgressFill.style.width = '100%';
+        els.saveProgress.hidden = true;
+        els.saveAllBtn.disabled = false;
+        els.saveProgressDone.hidden = false;
+        els.saveProgressDone.textContent = `✓ Все ${total} фотографий отправлены в «Фото»`;
+        els.saveProgressDone.className = 'save-progress-done is-ok';
+        toast(`Сохранено: ${total}`, 'ok');
+        renderResults();
+        return;
+      }
     }
     for (let i = 0; i < total; i++) {
       const it = targets[i];
@@ -828,48 +825,6 @@
     }
     renderResults();
   };
-
-  // Массовое сохранение запускается только из явного нажатия: это нужно Safari,
-  // чтобы системное окно «Поделиться» могло открыться для всего набора файлов.
-  els.saveAllBtn.addEventListener('click', saveAll);
-
-  // Возвращает приложение к состоянию до загрузки, но не трогает сохранённые
-  // настройки размера, формата и режима.
-  const clearAll = () => {
-    picking = false;
-    state.items.forEach((it) => {
-      if (it.blobUrl) URL.revokeObjectURL(it.blobUrl);
-    });
-    state.items = [];
-    thumbCache.clear();
-    state.viewTargetId = null;
-    state.viewGesture = null;
-    state.cropTargetId = null;
-    state.cropGesture = null;
-
-    try { els.fileInput.value = ''; } catch (_) {}
-    els.photoGrid.innerHTML = '';
-    els.resultsGrid.innerHTML = '';
-    els.counterValue.textContent = '0';
-    els.workspace.hidden = true;
-    els.results.hidden = true;
-    els.footer.hidden = true;
-    els.progressWrap.hidden = true;
-    els.progressFill.style.width = '0%';
-    els.saveProgress.hidden = true;
-    els.saveProgressFill.style.width = '0%';
-    els.saveProgressDone.hidden = true;
-    els.saveProgressDone.textContent = '';
-    els.saveAllBtn.disabled = false;
-    els.processBtn.disabled = true;
-    closeView();
-    closeCrop();
-    refreshMode();
-    toast('Все фотографии очищены', 'ok');
-  };
-
-  els.clearBtn.addEventListener('click', clearAll);
-
   // ---------- полноэкранный просмотр (только просмотр, без правок) ----------
   // Один палец — drag, два пальца — pinch+drag. Колесо мыши — зум на десктопе.
   // Полноэкранный просмотр одной фотографии. Используем только оригинальное фото,
